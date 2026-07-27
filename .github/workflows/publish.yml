@@ -1,0 +1,48 @@
+name: Publish package
+
+# Publishes @smarter-poker/commander-shared to GitHub Packages whenever the
+# version in package.json is one the registry has not seen yet.
+#
+# Idempotent by design: every push to main runs this, but it only publishes
+# when package.json carries a new version. Re-running on an already-published
+# version is a no-op rather than a red build, so this can sit on main
+# permanently without needing attention.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node against GitHub Packages
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@smarter-poker'
+
+      - name: Publish when the version is new
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Resolved $NAME@$VERSION"
+          if npm view "$NAME@$VERSION" version > /dev/null 2>&1; then
+            echo "$NAME@$VERSION is already on the registry - nothing to publish."
+          else
+            echo "Publishing $NAME@$VERSION ..."
+            npm publish
+            echo "Published $NAME@$VERSION"
+          fi
