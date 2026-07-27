@@ -1,7 +1,8 @@
 /**
  * FloorCallAlert — Real-time fullscreen popup when a table calls the floor
  * 
- * Uses Supabase Realtime (postgres_changes) + polling fallback every 5s.
+ * Uses Supabase Realtime (postgres_changes) as the primary path, with a 20s
+ * safety poll so a dropped channel cannot silently stop floor-call alerts.
  * Shows a fullscreen red alert on ALL Commander screens except cashier.
  * Auto-dismisses after 30 seconds.
  */
@@ -80,10 +81,24 @@ export default function FloorCallAlert({ venueId }) {
 
     useEffect(() => {
         poll();
+
+        // 2026-07-27 audit fix: the header has always advertised a polling
+        // fallback, but `pollInterval` was declared and never used — the only
+        // live path was the realtime channel. If that channel dropped, a floor
+        // tablet stopped announcing floor calls silently and indefinitely.
+        // A safety poll now runs alongside realtime. It is deliberately slower
+        // than the documented 5s: realtime already delivers in ~1s, so this
+        // exists purely to catch a dead channel without putting every
+        // Commander screen on a 5-second query loop.
+        if (venueId && !isExcluded) {
+            pollInterval.current = setInterval(poll, 20000);
+        }
+
         return () => {
             if (dismissTimer.current) { clearTimeout(dismissTimer.current); dismissTimer.current = null; }
+            if (pollInterval.current) { clearInterval(pollInterval.current); pollInterval.current = null; }
         };
-    }, [poll]);
+    }, [poll, venueId, isExcluded]);
 
     // Unified Real-Time Sync via Singleton WebSocket
     useCommanderSync(venueId, poll, { entities: ['floor_calls'] });

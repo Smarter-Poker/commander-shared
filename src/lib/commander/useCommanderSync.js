@@ -46,8 +46,8 @@ import { broadcastSync, listenBroadcast } from '../broadcastSync';
 // ─── Constants ─────────────────────────────────────────────────
 const CHANNEL_NAME = 'commander-sync';
 const THROTTLE_MS = 500;       // Max 1 refetch per 500ms per hook instance
-const RECONNECT_DELAY = 3000;  // Retry after 3s on Supabase channel failure
-const MAX_RECONNECT = 5;       // Max reconnect attempts before giving up
+const RECONNECT_DELAY = 3000;      // Base retry delay on Supabase channel failure
+const MAX_RECONNECT_DELAY = 60000; // Backoff ceiling — retries continue indefinitely
 
 // Unique ID for this tab — used to suppress self-broadcasts
 const TAB_ID = typeof crypto !== 'undefined' && crypto.randomUUID
@@ -131,6 +131,7 @@ const channelManager = {
                 tables: new Set(tables),
                 reconnects: 0,
                 reconnectTimer: null,
+                status: null,
             };
             this.venues[key].subscribers.add(callback);
             this._connect(key);
@@ -171,6 +172,26 @@ const channelManager = {
         }
     },
 
+    /**
+     * 2026-07-27 audit fix: force an immediate reconnect if this venue's
+     * channel is not currently subscribed. Called when the tab regains focus
+     * or the network returns, so an operator coming back to a floor tablet
+     * gets live data at once instead of waiting out the backoff timer.
+     * @param {string|number} venueId
+     */
+    ensureHealthy(venueId) {
+        const key = String(venueId);
+        const entry = this.venues[key];
+        if (!entry || entry.subscribers.size === 0) return;
+        if (entry.status === 'SUBSCRIBED') return;
+        if (entry.reconnectTimer) {
+            clearTimeout(entry.reconnectTimer);
+            entry.reconnectTimer = null;
+        }
+        entry.reconnects = 0; // fresh start — this is a user-driven revival
+        this._connect(key);
+    },
+
     /** @private Connect/reconnect the Supabase channel for a venue */
     _connect(venueKey) {
         const client = supabase;
@@ -208,22 +229,32 @@ const channelManager = {
         });
 
         channel.subscribe((status) => {
+            entry.status = status;
             if (status === 'SUBSCRIBED') {
                 entry.reconnects = 0;
-            } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-                if (entry.reconnects < MAX_RECONNECT) {
-                    entry.reconnects++;
-                    const delay = RECONNECT_DELAY * entry.reconnects;
-                    // Clear any previous reconnect timer to avoid stacking
-                    if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer);
-                    entry.reconnectTimer = setTimeout(() => {
-                        entry.reconnectTimer = null;
-                        // Only reconnect if this entry still exists and channel hasn't changed
-                        if (this.venues[venueKey] && this.venues[venueKey].channel === channel) {
-                            this._connect(venueKey);
-                        }
-                    }, delay);
-                }
+            } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                // 2026-07-27 audit fix: this previously stopped retrying after 5
+                // attempts (~45s) and never resumed, because `reconnects` only
+                // reset on a successful SUBSCRIBE. Any outage longer than that
+                // silently killed realtime for the whole venue in that tab —
+                // every Commander screen stopped updating until a manual reload,
+                // and FloorCallAlert (which has no polling fallback) stopped
+                // announcing floor calls entirely.
+                //
+                // Retries now continue indefinitely with exponential backoff
+                // capped at MAX_RECONNECT_DELAY, so a long outage costs at most
+                // one attempt per minute and recovers on its own.
+                entry.reconnects++;
+                const delay = Math.min(RECONNECT_DELAY * entry.reconnects, MAX_RECONNECT_DELAY);
+                // Clear any previous reconnect timer to avoid stacking
+                if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer);
+                entry.reconnectTimer = setTimeout(() => {
+                    entry.reconnectTimer = null;
+                    // Only reconnect if this entry still exists and channel hasn't changed
+                    if (this.venues[venueKey] && this.venues[venueKey].channel === channel) {
+                        this._connect(venueKey);
+                    }
+                }, delay);
             }
         });
 
@@ -363,7 +394,12 @@ export function useCommanderSync(venueId, onRefetch, opts = {}) {
         if (typeof document === 'undefined' || typeof window === 'undefined') return;
 
         const handleVisibility = () => {
-            if (!document.hidden && pendingWhileHiddenRef.current) {
+            if (document.hidden) return;
+            // 2026-07-27 audit fix: revive a dead realtime channel on focus.
+            // Previously a tab that lost its channel refetched at most once and
+            // then stayed silent forever.
+            if (venueId) channelManager.ensureHealthy(venueId);
+            if (pendingWhileHiddenRef.current) {
                 pendingWhileHiddenRef.current = false;
                 // Small delay to let rendering settle after tab focus
                 setTimeout(() => {
@@ -374,7 +410,8 @@ export function useCommanderSync(venueId, onRefetch, opts = {}) {
         };
 
         const handleOnline = () => {
-            // Network came back — refetch to catch up
+            // Network came back — revive the channel, then refetch to catch up
+            if (venueId) channelManager.ensureHealthy(venueId);
             lastRefetchRef.current = Date.now();
             refetchRef.current?.();
         };
@@ -386,7 +423,7 @@ export function useCommanderSync(venueId, onRefetch, opts = {}) {
             document.removeEventListener('visibilitychange', handleVisibility);
             window.removeEventListener('online', handleOnline);
         };
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [venueId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Layer 2: Supabase Realtime via Singleton Channel Manager ─
     useEffect(() => {
