@@ -6,28 +6,28 @@
 
 import { supabase } from '../supabase';
 import { busEmit } from '../../engine/EventBus';
+import { writeVipProof, readVipProof, clearVipProof } from './vipCache';
 
 /**
  * Check if user has access to a premium feature
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * SECURITY (2026-08-05): this function used to consult
+ * localStorage['sp-vip-status'] BEFORE any network call and return
+ * hasAccess:true on a bare string match. That made every premium feature on
+ * the platform a one-line devtools command:
+ *     localStorage.setItem('sp-vip-status', 'true')
+ * The cache is now consulted only on the failure path, is bound to the user
+ * id, expires after 24h, and anything it grants is flagged `degraded: true`.
+ * The server answer always wins whenever the server is reachable.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
  * @param {string} userId - User UUID
  * @param {string} featureKey - Feature identifier (e.g., 'bankroll_pro', 'poker_near_me', 'personal_assistant')
- * @returns {Promise<{hasAccess: boolean, isVip: boolean, expiresAt: Date|null, diamonds: number}>}
+ * @returns {Promise<{hasAccess: boolean, isVip: boolean, expiresAt: Date|null, diamonds: number, degraded?: boolean}>}
  */
 export async function checkFeatureAccess(userId, featureKey) {
     if (!userId) return { hasAccess: false, isVip: false, expiresAt: null, diamonds: 0 };
-
-    // ═══════════════════════════════════════════════════════════════════
-    // VIP DEFENSE LAYER 0: Check localStorage cache BEFORE any network
-    // This prevents VIP lockouts if network is slow/down
-    // ═══════════════════════════════════════════════════════════════════
-    if (typeof window !== 'undefined') {
-        try {
-            if (localStorage.getItem('sp-vip-status') === 'true') {
-                console.debug('[FeatureGate] VIP confirmed via localStorage cache — skipping network check');
-                return { hasAccess: true, isVip: true, expiresAt: null, diamonds: 0 };
-            }
-        } catch (e) { console.warn('[App] Handled exception:', e?.message || e); }
-    }
 
     // Ensure Supabase session is ready before querying
     let sessionUserId = null;
@@ -99,13 +99,30 @@ export async function checkFeatureAccess(userId, featureKey) {
             clearTimeout(timeoutId);
             if (resp.ok) {
                 const vipData = await resp.json();
+                // The server answered. Its answer is authoritative in BOTH
+                // directions — a "no" here must clear the cache, otherwise a
+                // lapsed VIP keeps their offline fallback alive forever.
+                writeVipProof(userId, vipData.isVip === true);
                 if (vipData.isVip) {
                     console.debug('[FeatureGate] Server-side fallback confirmed VIP for userId:', userId);
                     return { hasAccess: true, isVip: true, expiresAt: null, diamonds: vipData.diamonds || 0 };
                 }
+                return { hasAccess: false, isVip: false, expiresAt: null, diamonds: vipData.diamonds || 0 };
             }
         } catch (fallbackErr) {
             console.warn('[FeatureGate] Server-side VIP fallback also failed:', fallbackErr.message);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // DEGRADED FALLBACK — every server path has now failed.
+        // Only here may the local cache speak, and only for a non-expired
+        // entry this same user id verified earlier. `degraded: true` marks the
+        // result as unverified so callers can refuse to act on it for anything
+        // that spends money or mints diamonds.
+        // ═══════════════════════════════════════════════════════════════════
+        if (readVipProof(userId)) {
+            console.warn('[FeatureGate] Server unreachable — honouring cached VIP (degraded, unverified) for userId:', userId);
+            return { hasAccess: true, isVip: true, expiresAt: null, diamonds: 0, degraded: true };
         }
         return { hasAccess: false, isVip: false, expiresAt: null, diamonds: 0, error: 'Profile fetch failed' };
     }
@@ -114,12 +131,14 @@ export async function checkFeatureAccess(userId, featureKey) {
 
     // VIP users get unlimited access
     if (profile.is_vip) {
-        // Sync VIP status to localStorage for optimistic rendering
-        if (typeof window !== 'undefined') {
-            try { localStorage.setItem('sp-vip-status', 'true'); } catch (_) { console.warn('[App] Handled exception:', _?.message || _); }
-        }
+        // Server-verified answer — safe to record as an offline fallback.
+        writeVipProof(userId, true);
         return { hasAccess: true, isVip: true, expiresAt: null, diamonds: profile.diamonds || 0 };
     }
+
+    // Server-verified NOT VIP. Drop any stale fallback so an expired or
+    // revoked membership cannot keep granting access offline.
+    clearVipProof();
 
     const now = new Date().toISOString();
 
