@@ -67,22 +67,62 @@ export default function CommanderLayout({ children, title, backHref = '/commande
   const [commanderAccounts, setCommanderAccounts] = useState([]);
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
 
+
+  const [staff, setStaff] = useState(null);
+
+  // Multi-club account switcher. Declared AFTER `staff` on purpose: this
+  // effect reads staff?.user_id in its dependency array, which is evaluated
+  // during render, so placing it above the useState hit the temporal dead
+  // zone and threw "Cannot access 'staff' before initialization" on every
+  // Commander page (2026-08-20 fix).
   useEffect(() => {
     if (!staff?.user_id) return;
     const fetchAccounts = async () => {
       try {
-        const cached = sessionStorage.getItem('commander_accounts_cache');
+        const CACHE_KEY = 'commander_accounts_v2_cache';
+        const cached = sessionStorage.getItem(CACHE_KEY);
         if (cached) {
-          setCommanderAccounts(JSON.parse(cached));
-          return;
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed)) {
+              setCommanderAccounts(parsed);
+              return;
+            }
+          } catch (e) { /* ignore */ }
         }
+        
         const res = await fetch('/api/my-commander-accounts');
         if (res.ok) {
           const json = await res.json();
-          if (json.success && json.data?.accounts) {
-            setCommanderAccounts(json.data.accounts);
-            sessionStorage.setItem('commander_accounts_cache', JSON.stringify(json.data.accounts));
+          // The API returns { clubs, staff_venues, home_groups } directly on the root of the response, NOT inside json.data.accounts
+          const combined = [];
+          
+          if (json.clubs) {
+            json.clubs.forEach(club => {
+              combined.push({
+                venue_id: club.venue_id,
+                venue_name: club.venue?.name || 'My Venue',
+                role: 'owner',
+                sub_tier: club.tier,
+                club_logo: club.logo_url
+              });
+            });
           }
+          
+          if (json.staff_venues) {
+            json.staff_venues.forEach(sv => {
+              combined.push({
+                venue_id: sv.venue_id,
+                venue_name: sv.venue?.name || 'Venue',
+                role: sv.role || 'staff',
+                sub_tier: sv.tier,
+                club_logo: sv.logo_url
+              });
+            });
+          }
+          
+          setCommanderAccounts(combined);
+          sessionStorage.setItem(CACHE_KEY, JSON.stringify(combined));
         }
       } catch (err) {
         console.warn('Failed to fetch commander accounts', err);
@@ -121,8 +161,6 @@ export default function CommanderLayout({ children, title, backHref = '/commande
     
     window.location.href = '/commander/dashboard';
   };
-
-  const [staff, setStaff] = useState(null);
   const [showClubPagePopup, setShowClubPagePopup] = useState(false);
   const [clubPageId, setClubPageId] = useState(null); // Set when venue has an existing club page
   const [showUpgradeModal, setShowUpgradeModal] = useState(null); // null or { label, requiredTier }
@@ -786,9 +824,9 @@ export default function CommanderLayout({ children, title, backHref = '/commande
 
       <CommanderErrorBoundary>
         {/* ── GLOBAL HEADER BAR ── */}
-        <div className="cmd-global-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px' }}>
-          <div className="cmd-global-left" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button className="cmd-hamburger" onClick={() => setMenuOpen(true)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+        <div className="cmd-global-header" style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px' }}>
+          <div className="cmd-global-left" style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+            <button className="cmd-hamburger" onClick={() => setMenuOpen(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
               <img src="/images/commander/btn-hamburger.png" alt="Menu" style={{ width: '36px', height: '36px' }} />
             </button>
             {hideBack ? (
@@ -811,17 +849,17 @@ export default function CommanderLayout({ children, title, backHref = '/commande
               </button>
             )}
           </div>
-          <div className="cmd-global-center">
+          <div className="cmd-global-center" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap' }}>
             <div className="cmd-global-title">Club Commander</div>
           </div>
-          <div className="cmd-global-right" style={{ position: 'relative' }}>
+          <div className="cmd-global-right" style={{ position: 'relative', display: 'flex', justifyContent: 'flex-end', flex: 1, whiteSpace: 'nowrap' }}>
             <div 
               className="cmd-global-venue" 
-              style={{ cursor: commanderAccounts.length > 1 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '4px' }}
-              onClick={() => commanderAccounts.length > 1 && setShowAccountSwitcher(!showAccountSwitcher)}
+              style={{ cursor: Array.isArray(commanderAccounts) && commanderAccounts.length > 1 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '4px' }}
+              onClick={() => Array.isArray(commanderAccounts) && commanderAccounts.length > 1 && setShowAccountSwitcher(!showAccountSwitcher)}
             >
               {venueName}
-              {commanderAccounts.length > 1 && <ChevronDown size={14} />}
+              {Array.isArray(commanderAccounts) && commanderAccounts.length > 1 && <ChevronDown size={14} />}
             </div>
             {showAccountSwitcher && (
               <>
@@ -845,7 +883,7 @@ export default function CommanderLayout({ children, title, backHref = '/commande
                   <div style={{ fontSize: '11px', color: '#B0B3B8', textTransform: 'uppercase', padding: '4px 8px 8px', fontWeight: 600, letterSpacing: '0.05em' }}>
                     Switch Account
                   </div>
-                  {commanderAccounts.map(acc => (
+                  {Array.isArray(commanderAccounts) && commanderAccounts.map(acc => (
                     <button
                       key={`acc-${acc.venue_id}`}
                       onClick={() => switchAccount(acc)}
