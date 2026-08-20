@@ -409,9 +409,13 @@ export default function CommanderLayout({ children, title, backHref = '/commande
           .cmd-global-title { font-size: 16px; }
         }
         .cmd-global-venue {
-          font-size: 28px;
+          font-family: 'Orbitron', sans-serif;
+          font-size: 14px;
           color: #888;
-          margin-top: 2px;
+          letter-spacing: 1.5px;
+        }
+        @media (min-width: 640px) {
+          .cmd-global-venue { font-size: 16px; }
         }
 
         /* ── HAMBURGER BUTTON ── */
@@ -430,7 +434,7 @@ export default function CommanderLayout({ children, title, backHref = '/commande
           filter: brightness(1.2);
         }
         .cmd-hamburger img {
-          height: 32px;
+          height: 48px;
           width: auto;
           display: block;
         }
@@ -745,17 +749,10 @@ export default function CommanderLayout({ children, title, backHref = '/commande
             )}
           </div>
           <div className="cmd-global-center">
-            {title && !hideBack && (
-              <div className="cmd-global-page-title">
-                {title.replace(/\s*\|.*$/, '').replace(/^Commander\s*—\s*/, '')}
-              </div>
-            )}
+            <div className="cmd-global-title">Club Commander</div>
           </div>
           <div className="cmd-global-right">
-            <div>
-              <div className="cmd-global-title">Club Commander</div>
-              <div className="cmd-global-venue">{venueName}</div>
-            </div>
+            <div className="cmd-global-venue">{venueName}</div>
           </div>
         </div>
 

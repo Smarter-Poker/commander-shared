@@ -1,0 +1,50 @@
+# HAMBURGER MENU AUDIT (generated)
+
+## Menus with NO page consuming them (orphan menu configs)
+  - training
+  - diamond-store
+  - social
+  - club-arena
+  - lives
+
+## Pages requesting a worldKey that has NO menu config (falls back to empty menu)
+  (none)
+
+## Handler references that the calling page never passes (=> dead menu item)
+  pages/hub/poker-near-me/[pnmTab].js  [poker-near-me]  MISSING: replayTutorial
+  pages/hub/poker-near-me/lobby.js  [poker-near-me]  MISSING: openGlobalSearch, setGeofenceAlerts, setLocationEnabled, setShowNewcomerFriendly
+  pages/hub/index.js  [hub-home]  MISSING: openCardCustomizer
+  pages/hub/trivia/index.js  [trivia]  MISSING: setHintsEnabled, setTimerEnabled
+  pages/hub/personal-assistant/index.js  [hub-home]  MISSING: openCardCustomizer
+  pages/hub/personal-assistant/sandbox.js  [sandbox]  MISSING: onCustomSpot, onDrill, onFolders, onGodMode, onLog, onProImport, onRanges, onReplay, onReport, onReset, onResults, onSave, onSaveSpot, onSessions, onShare, onTemplates, onToggleCoach, onToggleHeatmap, onToggleNodeLocks, onToggleQuiz, onToggleSound, onUndo, onVillains
+  pages/hub/notifications.js  [notifications]  MISSING: setEmailEnabled, setPushEnabled
+
+## Per-menu handler + state requirements
+  hub-home: handlers=[openCardCustomizer] state=[]
+  training: handlers=[setAutoAdvance, setShowHints, setSoundEnabled, setTimerEnabled, setViewMode] state=[autoAdvance, showHints, soundEnabled, timerEnabled, viewMode]
+  messenger: handlers=[setActiveStatus, setMessageSounds, setNotifications, setReadReceipts] state=[activeStatus, messageSounds, notifications, readReceipts, requestCount, unreadCount]
+  reels: handlers=[onUploadReel, setAutoplay, setDataSaver, setShowCaptions, setSoundOnScroll] state=[autoplay, dataSaver, showCaptions, soundOnScroll]
+  friends: handlers=[setAllowRequests, setFriendSuggestions, setShowOnlineStatus] state=[allowRequests, friendSuggestions, requestCount, showOnlineStatus]
+  diamond-store: handlers=[setEmailReceipts, setPromoEmails] state=[cartCount, emailReceipts, promoEmails]
+  settings: handlers=[onSignOut] state=[]
+  bankroll-manager: handlers=[onAdjustBankroll, setAutoSave, setCurrencyEUR, setNotifications] state=[autoSave, currencyEUR, notifications]
+  poker-near-me: handlers=[openGlobalSearch, replayTutorial, setGeofenceAlerts, setLocationEnabled, setShowNewcomerFriendly] state=[geofenceAlerts, locationEnabled, showNewcomerFriendly]
+  video-library: handlers=[setAutoplay, setCaptions, setHdQuality] state=[autoplay, captions, hdQuality]
+  diamond-arena: handlers=[setAnimations, setAutoRebuy, setSoundEffects] state=[animations, autoRebuy, soundEffects]
+  trivia: handlers=[setHintsEnabled, setSoundEffects, setTimerEnabled] state=[hintsEnabled, soundEffects, timerEnabled]
+  news: handlers=[setEmailDigest, setPushNotifications] state=[emailDigest, pushNotifications]
+  sandbox: handlers=[onCustomSpot, onDrill, onFolders, onGodMode, onLog, onPlayTutorial, onProImport, onRanges, onReplay, onReport, onReset, onResults, onSave, onSaveSpot, onSessions, onShare, onTemplates, onToggleCoach, onToggleHeatmap, onToggleNodeLocks, onToggleQuiz, onToggleSound, onUndo, onVillains] state=[coachMode, hasResults, quizMode, saveStatus, sessionLogCount, showHeatmap, showNodeLocks, soundEnabled]
+  preflop-charts: handlers=[setKeyboardShortcuts, setShowTimer, setSoundEffects, setVisualHints] state=[keyboardShortcuts, showTimer, soundEffects, visualHints]
+  avatars: handlers=[] state=[]
+  profile: handlers=[] state=[]
+  social: handlers=[] state=[clubPageCreated]
+  notifications: handlers=[setEmailEnabled, setPushEnabled] state=[emailEnabled, pushEnabled]
+  tournaments: handlers=[] state=[]
+  leaderboards: handlers=[] state=[]
+  events: handlers=[] state=[]
+  promotions: handlers=[] state=[]
+  toke-tracker: handlers=[setAutoSaveShifts, setDownTimerAlerts, setShiftNotifications] state=[autoSaveShifts, downTimerAlerts, shiftNotifications]
+  help: handlers=[] state=[]
+  article: handlers=[] state=[]
+  club-arena: handlers=[onApplyToUnion, onViewApplicationStatus, setAutoRebuy, setCompactView, setNotifications, setSoundEffects, setTablePreview] state=[autoRebuy, clubInUnion, compactView, isClubOwner, notifications, soundEffects, tablePreview, unionApplicationStatus]
+  lives: handlers=[] state=[]

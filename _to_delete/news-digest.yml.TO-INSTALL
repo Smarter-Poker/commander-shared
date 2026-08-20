@@ -1,0 +1,121 @@
+name: News Email Digest (Weekly)
+
+on:
+  schedule:
+    # Run weekly on Tuesday at 14:00 UTC (8am CST / 9am CDT)
+    - cron: '0 14 * * 2'
+  workflow_dispatch:
+    # Allow manual trigger — defaults to a dry run so a mis-click cannot mail
+    # the real subscriber list.
+    inputs:
+      dry_run:
+        description: 'Dry run (count recipients, send nothing)'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      days:
+        description: 'Look-back window in days (1-30)'
+        required: false
+        default: '7'
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  send-news-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Verify required secrets
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set. The digest endpoint requires it and will return 401."
+            exit 1
+          fi
+          echo "CRON_SECRET is present."
+
+      - name: Send weekly digest
+        env:
+          # Secrets are passed through the environment, never interpolated into
+          # the command line, so they cannot leak into the run log.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SITE_URL: ${{ secrets.SITE_URL || vars.SITE_URL || 'https://smarter.poker' }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run }}
+          DAYS: ${{ github.event.inputs.days || '7' }}
+        run: |
+          set -euo pipefail
+
+          ENDPOINT="${SITE_URL%/}/api/news/digest?days=${DAYS}"
+          if [ "$DRY_RUN" = "true" ]; then
+            ENDPOINT="${ENDPOINT}&dryRun=1"
+          fi
+
+          echo "=========================================="
+          echo "SMARTER.POKER WEEKLY NEWS DIGEST"
+          echo "Endpoint: ${ENDPOINT}"
+          echo "Dry run:  ${DRY_RUN}"
+          echo "Started:  $(date -u)"
+          echo "=========================================="
+
+          HTTP_CODE=$(curl -sS \
+            -o /tmp/digest-response.json \
+            -w '%{http_code}' \
+            -X POST "$ENDPOINT" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json' \
+            --max-time 300 \
+            --retry 2 \
+            --retry-delay 10 \
+            --retry-connrefused)
+
+          echo "HTTP ${HTTP_CODE}"
+          echo "--- response ---"
+          cat /tmp/digest-response.json || true
+          echo ""
+
+          case "$HTTP_CODE" in
+            200)
+              echo "Digest run completed."
+              ;;
+            401)
+              echo "::error::Unauthorized (401) — CRON_SECRET does not match the deployed environment."
+              exit 1
+              ;;
+            503)
+              echo "::error::Email is not configured (503) — check RESEND_API_KEY on the deployment. Nothing was sent."
+              exit 1
+              ;;
+            *)
+              echo "::error::Digest endpoint returned HTTP ${HTTP_CODE}."
+              exit 1
+              ;;
+          esac
+
+      - name: Upload digest response
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-digest-response-${{ github.run_number }}
+          path: /tmp/digest-response.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Report Summary
+        if: always()
+        run: |
+          echo "═══════════════════════════════════════════════════════════"
+          echo "📬 NEWS DIGEST WORKFLOW COMPLETED"
+          echo "═══════════════════════════════════════════════════════════"
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Dry run: ${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run }}"
+          echo "Completed at: $(date -u)"
+          echo "═══════════════════════════════════════════════════════════"
