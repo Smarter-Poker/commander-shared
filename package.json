@@ -1,7 +1,7 @@
 {
   "name": "@smarter-poker/commander-shared",
   "version": "0.1.2",
-  "description": "Shared code package for Smarter-Poker World Hub and Commander — UI components, hooks, engine utilities, lib helpers. Single source of truth eliminates copy-paste drift between repos.",
+  "description": "Shared code package for Smarter-Poker World Hub and Commander \u2014 UI components, hooks, engine utilities, lib helpers. Single source of truth eliminates copy-paste drift between repos.",
   "private": false,
   "main": "src/index.js",
   "type": "module",
@@ -16,7 +16,8 @@
     "./lib/*": "./src/lib/*"
   },
   "scripts": {
-    "test": "echo 'no tests yet — code is exercised by consumers (World Hub + Commander)' && exit 0"
+    "test": "echo 'no tests yet \u2014 code is exercised by consumers (World Hub + Commander)' && exit 0",
+    "prepare": "git config core.hooksPath .husky 2>/dev/null || true"
   },
   "repository": {
     "type": "git",
@@ -33,9 +34,17 @@
     "@supabase/supabase-js": "^2.0.0"
   },
   "peerDependenciesMeta": {
-    "react": { "optional": false },
-    "react-dom": { "optional": false },
-    "next": { "optional": true },
-    "@supabase/supabase-js": { "optional": false }
+    "react": {
+      "optional": false
+    },
+    "react-dom": {
+      "optional": false
+    },
+    "next": {
+      "optional": true
+    },
+    "@supabase/supabase-js": {
+      "optional": false
+    }
   }
 }
