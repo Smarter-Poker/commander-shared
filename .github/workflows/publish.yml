@@ -33,14 +33,42 @@ jobs:
 
       - name: Publish when the version is new
         env:
+          # BOTH names, deliberately. setup-node writes a config that reads
+          # NODE_AUTH_TOKEN, but this repo carries its own .npmrc at the
+          # project root -
+          #   //npm.pkg.github.com/:_authToken=${NPM_TOKEN}
+          # - and a project .npmrc beats the user-level one setup-node wrote.
+          # NPM_TOKEN was never set, so the token expanded to the empty string
+          # and every run since at least 2026-08-20 died on
+          # `401 Unauthorized - unauthenticated: User cannot be authenticated`.
+          #
+          # The failure was invisible in the worst way: the version guard below
+          # calls `npm view`, which ALSO 401s, which looks identical to "this
+          # version is not published yet" - so the job dutifully tried to
+          # publish every single time and failed every single time, while the
+          # registry kept serving whatever was last successfully pushed.
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
           echo "Resolved $NAME@$VERSION"
-          if npm view "$NAME@$VERSION" version > /dev/null 2>&1; then
+          # `npm view` failing is NOT proof the version is new - an auth or
+          # network failure looks exactly the same, which is how this job hid a
+          # broken credential behind a publish attempt for days. Separate the
+          # two: 404 means genuinely unpublished, anything else is an error
+          # worth stopping on.
+          set +e
+          VIEW=$(npm view "$NAME@$VERSION" version 2>&1)
+          CODE=$?
+          set -e
+          if [ $CODE -eq 0 ]; then
             echo "$NAME@$VERSION is already on the registry - nothing to publish."
+          elif ! printf '%s' "$VIEW" | grep -qiE '404|E404|not found'; then
+            echo "::error::cannot reach the registry as an authenticated user:"
+            printf '%s\n' "$VIEW"
+            exit 1
           else
             echo "Publishing $NAME@$VERSION ..."
             npm publish
