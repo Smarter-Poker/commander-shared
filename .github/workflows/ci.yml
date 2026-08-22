@@ -1,0 +1,45 @@
+# commander-shared shipped with no CI. Agent Autopilot merges on mergeable
+# state, and "CLEAN" means only that nothing is failing — with no checks at
+# all, that is indistinguishable from "nothing was checked". Every other repo
+# in the estate now has a required gate; this is this repo's.
+#
+# What it can and cannot do: no code here runs in this repo, so there is
+# nothing to unit-test. What CAN be verified statically is the set of ways
+# this package has silently broken its CONSUMERS. See
+# scripts/ci/package-integrity.mjs for each one and the incident behind it.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  integrity:
+    # This name is the required-status-check context on the `main` ruleset.
+    # Renaming the job silently un-gates the branch: GitHub waits forever for
+    # a context that no longer reports. Change both together or neither.
+    name: Package Integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # No `npm ci`: this package has no lockfile and no devDependencies, and
+      # the gate is deliberately dependency-free so a registry outage cannot
+      # turn it red for a reason that has nothing to do with the change.
+      - name: Package integrity (ESM correctness, import resolution, exports map)
+        run: node scripts/ci/package-integrity.mjs
