@@ -38,3 +38,25 @@ test('Commander adoption preserves route and expired-session safeguards', () => 
   assert.match(layout, /canRoleAccessRoute\(staffRole, item\.href\)/);
   assert.match(layout, /handlePinSubmit/);
 });
+
+test('Commander global header uses the approved row with wired controls and live avatar', () => {
+  const layout = readFileSync(join(root, 'src/components/commander/shared/CommanderLayout.jsx'), 'utf8');
+  assert.match(layout, /global-header-desktop\.png/);
+  assert.match(layout, /aspect-ratio: 1648 \/ 168/);
+  assert.match(layout, /cmd-approved-header__avatar/);
+  assert.match(layout, /src=\{profileAvatar\}/);
+
+  for (const label of [
+    'Open Menu',
+    'Go back',
+    'Go to the Hub',
+    'My Profile',
+    'Diamond Wallet',
+    'VIP',
+    'Messages',
+    'Notifications',
+  ]) {
+    assert.match(layout, new RegExp(`aria-label="${label}"`));
+  }
+  assert.ok((layout.match(/cmd-approved-header__button[^\n]*onClick/g) || []).length >= 8);
+});
