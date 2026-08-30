@@ -43,8 +43,14 @@ test('Commander global header uses the approved row with wired controls and live
   const layout = readFileSync(join(root, 'src/components/commander/shared/CommanderLayout.jsx'), 'utf8');
   assert.match(layout, /global-header-desktop\.png/);
   assert.match(layout, /aspect-ratio: 1648 \/ 168/);
+  assert.match(layout, /cmd-approved-header__avatar-slot/);
   assert.match(layout, /cmd-approved-header__avatar/);
   assert.match(layout, /src=\{profileAvatar\}/);
+  assert.match(layout, /contain: layout paint/);
+  assert.match(layout, /width: 58%/);
+  assert.match(layout, /aspect-ratio: \.78/);
+  assert.match(layout, /profile-updated/);
+  assert.match(layout, /smarter_poker_avatar_sync/);
 
   for (const label of [
     'Open Menu',
