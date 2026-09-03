@@ -43,3 +43,8 @@ jobs:
       # turn it red for a reason that has nothing to do with the change.
       - name: Package integrity (ESM correctness, import resolution, exports map)
         run: node scripts/ci/package-integrity.mjs
+
+      # Behavioural cover for the one module both consumers now depend on for
+      # sign-in: the staff-session lifecycle (2026-09-03). node:test, no deps.
+      - name: Unit tests (node --test)
+        run: npm test
