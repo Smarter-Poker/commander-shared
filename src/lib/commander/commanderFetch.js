@@ -1,6 +1,6 @@
 /**
  * Commander Fetch Wrapper
- * Centralized fetch with automatic auth headers & 401 redirect.
+ * Centralized fetch with automatic auth headers & 401 self-heal.
  *
  * Usage:
  *   import { commanderFetch, commanderFetchJSON } from '@/lib/commander/commanderFetch';
@@ -15,19 +15,15 @@
  * - Automatically injects Authorization + x-staff-session headers
  * - Auto-adds Content-Type: application/json on POST/PUT/PATCH (when body is present)
  * - Skips Authorization header if token is empty (PIN-based terminal staff)
- * - On 401 response, redirects to /commander/login with session-expired message
+ * - On 401, silently re-mints the signed staff session from the live
+ *   Smarter.Poker session and retries ONCE before telling anyone
  * - Merges caller-provided headers (caller headers take precedence)
  * - Returns the raw Response object (caller handles .json())
  */
 import { getToken, getStaffSession } from './clientAuth';
+import { refreshStaffSession } from './staffSession';
 
-/**
- * Fetch wrapper that auto-injects Commander auth headers.
- * @param {string} url - API URL
- * @param {RequestInit} [opts] - Standard fetch options
- * @returns {Promise<Response>}
- */
-export async function commanderFetch(url, opts = {}) {
+function buildHeaders(opts) {
   const token = getToken();
   const staffSession = getStaffSession();
 
@@ -46,52 +42,74 @@ export async function commanderFetch(url, opts = {}) {
   if (['POST', 'PUT', 'PATCH'].includes(method) && opts.body && !mergedHeaders['Content-Type']) {
     mergedHeaders['Content-Type'] = 'application/json';
   }
+  return mergedHeaders;
+}
 
-  const response = await fetch(url, { ...opts, headers: mergedHeaders });
-
-  // 401 = token expired or invalid → redirect to login
-  if (response.status === 401) {
-    if (typeof window !== 'undefined') {
-      // Store the current page so login can redirect back
-      // try { sessionStorage.setItem('commander_return_url', window.location.pathname); } catch (e) { console.warn('[App] Handled exception:', e); }
-      // window.location.href = '/commander/login?expired=1';
-    }
-    // Still throw so the caller's catch block fires
-    // throw new Error('Session expired - redirecting to login');
-    return new Response(JSON.stringify({
-      clubs: [{ venue_id: 'v1', venue: { name: 'Club JAQK' }, role: 'owner' }],
-      staff_venues: []
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-  }
-
-  // Session expiry warning (non-blocking).
-  // 2026-08-20 FIX: this check previously applied the 12-hour PIN TTL to
-  // EVERY session type. Owner sessions are valid for 7 DAYS server-side
-  // (OWNER_SESSION_TTL_MS in lib/commander/auth), so ~12h after login the
-  // client would dispatch minutesLeft:0, CommanderLayout would hard-redirect
-  /*
-  if (typeof window !== 'undefined' && staffSession) {
+function announceUnauthorized(url) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem('commander_return_url', window.location.pathname);
+  } catch (e) { console.warn('[App] Handled exception:', e); }
+  // Throttle: one announcement per 10s, no matter how many polls 401.
+  const now = Date.now();
+  if (!window.__commander_401_at || now - window.__commander_401_at > 10000) {
+    window.__commander_401_at = now;
     try {
-      const parsed = JSON.parse(staffSession);
-      if (parsed.session_ts) {
-        const isPinSession = !!parsed.id;
-        const TTL_MS = isPinSession
-          ? 12 * 60 * 60 * 1000        // PIN terminals: 12h (matches server)
-          : 7 * 24 * 60 * 60 * 1000;   // Owner logins: 7d (matches server)
-        const elapsed = Date.now() - parsed.session_ts;
-        const WARN_MS = TTL_MS - (15 * 60 * 1000); // warn 15 min before expiry
-        // Track WHICH session_ts we already warned about - resets on new login
-        if (elapsed > WARN_MS && window.__commander_ttl_warned_ts !== parsed.session_ts) {
-          window.__commander_ttl_warned_ts = parsed.session_ts;
-          const minsLeft = Math.max(0, Math.round((TTL_MS - elapsed) / 60000));
-          console.warn(`[Commander] ${isPinSession ? 'PIN' : 'Owner'} session expires in ~${minsLeft} minutes`);
-          // Dispatch event that CommanderLayout can listen to for a banner
-          window.dispatchEvent(new CustomEvent('commander:session-expiring', { detail: { minutesLeft: minsLeft } }));
-        }
-      }
-    } catch {  }
+      window.dispatchEvent(new CustomEvent('commander:unauthorized', {
+        detail: { url: typeof url === 'string' ? url : String(url) }
+      }));
+    } catch (e) { console.warn('[App] Handled exception:', e); }
   }
-  */
+}
+
+// A request body that is a stream can only be sent once; everything else
+// (string / FormData / Blob / URLSearchParams / ArrayBuffer) is safe to resend.
+function isRetryable(opts) {
+  const body = opts.body;
+  if (body == null) return true;
+  if (typeof body === 'string') return true;
+  if (typeof ReadableStream !== 'undefined' && body instanceof ReadableStream) return false;
+  return true;
+}
+
+/**
+ * Fetch wrapper that auto-injects Commander auth headers.
+ * @param {string} url - API URL
+ * @param {RequestInit} [opts] - Standard fetch options
+ * @returns {Promise<Response>}
+ */
+export async function commanderFetch(url, opts = {}) {
+  let response = await fetch(url, { ...opts, headers: buildHeaders(opts) });
+
+  // 401 = token expired, invalid, or the route requires a session this client
+  // does not have.
+  //
+  // 2026-08-20: this used to swallow the 401 and return a FABRICATED HTTP 200
+  // carrying a hardcoded club. The real 401 is now passed through so callers
+  // can handle it, and CommanderLayout surfaces a banner.
+  //
+  // 2026-09-03 SELF-HEAL: the signed `commander_staff` session has a 7-day
+  // TTL, is invalidated whenever the signing secret rotates, and was being
+  // mutated client-side by the club switcher (which breaks its HMAC). In all
+  // of those cases the user's Smarter.Poker session was still perfectly
+  // valid - only the derived Commander token had gone stale - yet the app
+  // painted "Your Session Is Not Valid" and sent them back to a login page.
+  // A stale derived token is not a reason to ask a signed-in user for their
+  // password: re-mint it from the live session and retry the request once.
+  // Only if THAT fails do we announce the 401.
+  if (response.status === 401 && typeof window !== 'undefined' && !opts.__commanderRetried) {
+    let healed = false;
+    try { healed = await refreshStaffSession(); } catch { healed = false; }
+    if (healed && isRetryable(opts)) {
+      const retryOpts = { ...opts, __commanderRetried: true };
+      response = await fetch(url, { ...retryOpts, headers: buildHeaders(retryOpts) });
+    }
+  }
+
+  if (response.status === 401) {
+    announceUnauthorized(url);
+    return response;
+  }
 
   return response;
 }
