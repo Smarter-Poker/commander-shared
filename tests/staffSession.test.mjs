@@ -22,7 +22,7 @@ beforeEach(() => {
   events = []; globalThis.dispatchEvent = (e) => events.push(e);
   calls = [];
   response = () => ({ ok: true, status: 200, json: async () => ({ subscription: { venue_id: 77, venue: { name: 'Test Room' } }, staff_session: { user_id: 'u1', venue_id: 77, role: 'owner', session_ts: Date.now(), sig: 'server-sig' } }) });
-  globalThis.fetch = async (url, opts) => { calls.push({ url, body: JSON.parse(opts.body), auth: opts.headers.Authorization }); return response(); };
+  globalThis.fetch = async (url, opts) => { calls.push({ url, body: JSON.parse(opts.body), auth: opts.headers.Authorization }); if (url.includes('/staff-session/renew')) return { ok: false, status: 401, json: async () => ({}) }; return response(); };
 });
 const load = () => import(`../src/lib/commander/staffSession.js?t=${Date.now()}${Math.random()}`);
 const hub = () => localStorage.setItem('smarter-poker-auth', JSON.stringify({ access_token: 'tok', user: { id: 'u1', email: 'a@b.c' } }));
@@ -58,12 +58,12 @@ test('refresh honours the venue the client is on, and never touches PIN sessions
   const m = await load(); hub();
   localStorage.setItem('commander_staff', JSON.stringify({ user_id: 'u1', venue_id: 99, role: 'owner', sig: 'bad', session_ts: Date.now() }));
   await m.refreshStaffSession();
-  // renew is attempted first (fetch mock returns the subscription shape, which renew rejects), then the full path
+  // renew is attempted first (mock refuses), then the full path
   const sub = calls.find((c) => c.url.includes('check-subscription'));
   assert.equal(sub.body.preferred_venue_id, 99);
   localStorage.setItem('commander_staff', JSON.stringify({ id: 'row', venue_id: 77, role: 'floor', sig: 'x', session_ts: 1 }));
   assert.equal(await m.refreshStaffSession({ force: true }), false);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.filter((c) => c.url.includes('check-subscription')).length, 1);
 });
 
 test('completeCommanderLogin stores and navigates; surfaces server errors; refuses without a token', async () => {
