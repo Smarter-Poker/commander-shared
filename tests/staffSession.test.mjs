@@ -58,7 +58,9 @@ test('refresh honours the venue the client is on, and never touches PIN sessions
   const m = await load(); hub();
   localStorage.setItem('commander_staff', JSON.stringify({ user_id: 'u1', venue_id: 99, role: 'owner', sig: 'bad', session_ts: Date.now() }));
   await m.refreshStaffSession();
-  assert.equal(calls[0].body.preferred_venue_id, 99);
+  // renew is attempted first (fetch mock returns the subscription shape, which renew rejects), then the full path
+  const sub = calls.find((c) => c.url.includes('check-subscription'));
+  assert.equal(sub.body.preferred_venue_id, 99);
   localStorage.setItem('commander_staff', JSON.stringify({ id: 'row', venue_id: 77, role: 'floor', sig: 'x', session_ts: 1 }));
   assert.equal(await m.refreshStaffSession({ force: true }), false);
   assert.equal(calls.length, 1);
