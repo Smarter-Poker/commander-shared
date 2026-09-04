@@ -536,24 +536,55 @@ export default function CommanderLayout({ children, title, backHref = '/commande
           display: block;
         }
 
-        /* ── BACK IMAGE BUTTON ── */
-        .cmd-back-img-btn {
-          background: none;
-          border: none;
-          padding: 0;
+        /* ── GLOBAL BRUSHED-NICKEL NAV PILLS ── */
+        .cmd-back-img-btn,
+        .cmd-hub-btn {
+          min-width: 72px;
+          height: 32px;
+          padding: 0 16px;
+          border: 1px solid transparent;
+          border-radius: 999px;
+          background:
+            linear-gradient(#111315, #111315) padding-box,
+            repeating-linear-gradient(90deg, #777d82 0, #c9ced1 1px, #8d9398 2px, #d4d8da 4px, #7f858a 5px) border-box;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.72), 0 1px 2px rgba(0,0,0,0.55);
           cursor: pointer;
           display: flex;
           align-items: center;
-          transition: all 0.2s;
+          justify-content: center;
+          color: #c9ced1;
+          font-family: 'Orbitron', 'Rajdhani', system-ui, sans-serif;
+          font-size: 11px;
+          font-weight: 800;
+          line-height: 1;
+          letter-spacing: 1.45px;
+          text-transform: uppercase;
+          white-space: nowrap;
+          transition: transform 0.1s ease, background 0.15s ease;
         }
-        .cmd-back-img-btn:hover {
-          transform: scale(1.08);
-          filter: brightness(1.3);
+        .cmd-back-img-btn > span,
+        .cmd-hub-btn > span {
+          background: repeating-linear-gradient(90deg, #8c9297 0, #d9dddf 1px, #a1a7ab 2px, #e0e3e5 4px, #8f959a 5px);
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          text-shadow: 0 1px 0 rgba(0,0,0,0.75);
         }
-        .cmd-back-img-btn img {
-          height: 32px;
-          width: auto;
-          display: block;
+        .cmd-back-img-btn:hover,
+        .cmd-hub-btn:hover {
+          transform: scale(1.05);
+          background:
+            linear-gradient(#171a1d, #171a1d) padding-box,
+            repeating-linear-gradient(90deg, #858b90 0, #d8dcde 1px, #999fa4 2px, #e0e3e5 4px, #898f94 5px) border-box;
+        }
+        .cmd-back-img-btn:active,
+        .cmd-hub-btn:active {
+          transform: scale(0.96);
+        }
+        .cmd-back-img-btn:focus-visible,
+        .cmd-hub-btn:focus-visible {
+          outline: 2px solid #22D3EE;
+          outline-offset: 3px;
         }
 
         /* ── SLIDE-OUT MENU ── */
@@ -679,26 +710,6 @@ export default function CommanderLayout({ children, title, backHref = '/commande
           text-align: center;
           letter-spacing: 0.5px;
           text-transform: uppercase;
-        }
-
-        /* ── HUB BUTTON (dashboard only) ── */
-        .cmd-hub-btn {
-          background: none;
-          border: none;
-          padding: 0;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          transition: all 0.2s;
-        }
-        .cmd-hub-btn:hover {
-          transform: scale(1.08);
-          filter: brightness(1.2);
-        }
-        .cmd-hub-btn img {
-          height: 32px;
-          width: auto;
-          display: block;
         }
 
         /* ── PIN GATE MODAL ── */
@@ -836,7 +847,7 @@ export default function CommanderLayout({ children, title, backHref = '/commande
                 onClick={() => router.push('/hub')}
                 title="Back To Smarter.Poker Hub"
               >
-                <img src="/images/btn-hub.png" alt="Hub" />
+                <span aria-hidden="true">Hub</span>
               </button>
             ) : (
               /* All other pages: show metallic BACK image */
@@ -845,7 +856,7 @@ export default function CommanderLayout({ children, title, backHref = '/commande
                 onClick={() => router.back()}
                 title="Go Back"
               >
-                <img src="/images/commander/btn-back.png" alt="Back" />
+                <span aria-hidden="true">Back</span>
               </button>
             )}
           </div>
