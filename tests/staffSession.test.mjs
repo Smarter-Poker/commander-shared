@@ -88,3 +88,19 @@ test('a registered access-token provider beats the cached token; failures fall b
   m.setAccessTokenProvider(null);
   assert.equal(await m.currentAccessToken(), 'tok');
 });
+
+test('refresh tries the DB-free renew first and falls back to check-subscription', async () => {
+  const m = await load(); hub();
+  const routes = { renew: () => ({ ok: true, status: 200, json: async () => ({ staff_session: { user_id: 'u1', venue_id: 77, role: 'owner', session_ts: Date.now(), sig: 'renewed' } }) }) };
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => { calls.push({ url, body: JSON.parse(opts.body), auth: opts.headers.Authorization }); return url.includes('/staff-session/renew') ? routes.renew() : response(); };
+  localStorage.setItem('commander_staff', JSON.stringify({ user_id: 'u1', venue_id: 77, role: 'owner', sig: 'authentic', session_ts: Date.now() - 25 * 3600e3, venue_name: 'Room' }));
+  assert.equal(await m.refreshStaffSession({ force: true }), true);
+  assert.deepEqual(calls.map((c) => c.url), ['/api/commander/staff-session/renew']);
+  assert.equal(JSON.parse(localStorage.getItem('commander_staff')).sig, 'renewed');
+  assert.equal(JSON.parse(localStorage.getItem('commander_staff')).venue_name, 'Room');
+  calls.length = 0; routes.renew = () => ({ ok: false, status: 401, json: async () => ({}) });
+  assert.equal(await m.refreshStaffSession({ force: true }), true);
+  assert.deepEqual(calls.map((c) => c.url), ['/api/commander/staff-session/renew', '/api/commander/check-subscription']);
+  globalThis.fetch = orig;
+});
