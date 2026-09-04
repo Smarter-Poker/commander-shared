@@ -75,3 +75,16 @@ test('completeCommanderLogin stores and navigates; surfaces server errors; refus
   const r2 = await m.completeCommanderLogin({ id: 'u1' }, '');
   assert.equal(r2.ok, false);
 });
+
+test('a registered access-token provider beats the cached token; failures fall back', async () => {
+  const m = await load(); hub();
+  localStorage.setItem('commander_staff', JSON.stringify({ user_id: 'u1', venue_id: 77, role: 'owner' }));
+  m.setAccessTokenProvider(async () => 'fresh-tok');
+  assert.equal(await m.currentAccessToken(), 'fresh-tok');
+  assert.equal(await m.refreshStaffSession({ force: true }), true);
+  assert.equal(calls[0].auth, 'Bearer fresh-tok');
+  m.setAccessTokenProvider(async () => { throw new Error('sdk not ready'); });
+  assert.equal(await m.currentAccessToken(), 'tok');
+  m.setAccessTokenProvider(null);
+  assert.equal(await m.currentAccessToken(), 'tok');
+});
