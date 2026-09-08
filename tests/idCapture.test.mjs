@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import {
     detectDocument, orderQuad, scoreQuad, polygonArea, dist, CARD_ASPECT,
 } from '../src/lib/docscan/pipeline.mjs';
+import { parseAamva } from '../src/lib/idscan/aamva.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -222,11 +223,11 @@ test('a scan fills empty fields and never overwrites what staff typed', () => {
     const src = read(MODAL);
     const idx = src.indexOf('const applyIdFields');
     assert.ok(idx > 0);
-    const body = src.slice(idx, idx + 900);
+    const body = src.slice(idx, idx + 1600);
     assert.match(
         body,
-        /if \(key in next && !String\(next\[key\] \|\| ''\)\.trim\(\)\) next\[key\] = value;/,
-        'only blank fields may be filled',
+        /const untouched = !current \|\| current === FIELD_DEFAULTS\[key\];\s*if \(untouched\) next\[key\] = value;/,
+        'only blank or still-default fields may be filled',
     );
 });
 
@@ -248,6 +249,51 @@ test('an unreadable barcode is reported honestly, and unsupported differently', 
     const facade = read(PDF417);
     assert.match(facade, /getSupportedFormats/, 'presence of the API is not proof PDF417 is supported');
     assert.match(facade, /reason: 'unsupported'/, 'unsupported must be distinguishable from not-found');
+});
+
+test('a scan can replace a field that is only sitting at its default', () => {
+    // id_type starts as 'drivers_license' because the select needs a value.
+    // Counting that as staff input meant a scanned State ID was filed as a
+    // driver licence: wrong data on the member record, silently.
+    const src = read(MODAL);
+    assert.match(src, /const FIELD_DEFAULTS = \{/, 'defaults must be named, not implied');
+    assert.match(src, /id_type: 'drivers_license'/, 'id_type is the one that bit');
+    assert.match(
+        src,
+        /const untouched = !current \|\| current === FIELD_DEFAULTS\[key\];/,
+        'a default counts as untouched, a typed value does not',
+    );
+
+    // And the parser really does distinguish the two document types.
+    const idCard = parseAamva(['@\n\x1e\rANSI 636014080002ID00410278ZC03190008IDDAQZ55', 'DCSRIVERA', 'DACLUIS', 'DAJTX', 'DBB07041992\r'].join('\n'));
+    assert.equal(idCard.fields.id_type, 'state_id');
+});
+
+test('a worker that dies after the handshake falls back instead of throwing', () => {
+    const client = read('src/lib/docscan/scanClient.js');
+    assert.match(
+        client,
+        /return readyPromise\.then\(\(ok\) => ok && Boolean\(worker\)\);/,
+        'a cached yes must be re-checked against the live worker, or postMessage runs on null',
+    );
+});
+
+test('nothing is imported or exported that nobody uses', () => {
+    // Dead code in a privacy-critical file is how a reviewer stops trusting
+    // the file. Both of these were real: an unused import and a "test seam"
+    // no test ever used.
+    const capture = read(CAPTURE);
+    assert.doesNotMatch(capture, /isPdf417Supported/, 'unused import must not come back');
+    const facade = read(PDF417);
+    assert.doesNotMatch(facade, /resetPdf417SupportCache/, 'unused export must not come back');
+
+    // Everything the facade still exports has a caller.
+    for (const name of ['isPdf417Supported', 'decodePdf417', 'decodePdf417FromCandidates']) {
+        const declared = new RegExp(`export (async )?function ${name}\\b`).test(facade);
+        assert.ok(declared, `${name} should still be exported`);
+        const usedSomewhere = new RegExp(`\\b${name}\\(`).test(facade + capture);
+        assert.ok(usedSomewhere, `${name} is exported but nothing calls it`);
+    }
 });
 
 test('scanner surfaces carry no emoji, per the commander rule', () => {
