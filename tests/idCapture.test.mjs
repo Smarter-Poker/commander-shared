@@ -251,6 +251,18 @@ test('an unreadable barcode is reported honestly, and unsupported differently', 
     assert.match(facade, /reason: 'unsupported'/, 'unsupported must be distinguishable from not-found');
 });
 
+test('the capture modal escapes its parent stacking context', () => {
+    // It is mounted from AddMemberModal, whose overlay is `fixed inset-0 z-50`
+    // and therefore a stacking context: z-[60] here only ever means "within
+    // 50". The same shape of bug hid the receipt scanner's close button behind
+    // the World Hub header on production, where raising the z-index twice
+    // fixed nothing.
+    const src = read(CAPTURE);
+    assert.match(src, /import \{ createPortal \} from 'react-dom';/, 'the modal must be portalled');
+    assert.match(src, /createPortal\(tree, document\.body\)/, 'onto document.body');
+    assert.match(src, /typeof document === 'undefined' \? tree : createPortal/, 'server-render safe');
+});
+
 test('a scan can replace a field that is only sitting at its default', () => {
     // id_type starts as 'drivers_license' because the select needs a value.
     // Counting that as staff input meant a scanned State ID was filed as a
