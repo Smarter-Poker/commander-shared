@@ -21,8 +21,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     parseLicenceFace, looksLikeLicenceFace, faceDate, findState, findIdNumber, toLines,
+    registerFaceReader, hasFaceReader, resetFaceReaderForTests, readLicenceFace,
 } from '../src/lib/idscan/licenceFace.mjs';
 import { parseAamva } from '../src/lib/idscan/aamva.mjs';
+import fs from 'node:fs';
 
 /** Nevada, printing the AAMVA numerals, which most modern cards do. */
 const NEVADA = `NEVADA
@@ -180,4 +182,124 @@ test('the state comes from its printed name or from the address line', () => {
 
 test('the reader is pure: no network, no model, same answer twice', () => {
     assert.deepEqual(parseLicenceFace(NEVADA), parseLicenceFace(NEVADA));
+});
+
+// ---------------------------------------------------------------------------
+// THE SEAM: THIS PACKAGE CARRIES NO ENGINE
+// ---------------------------------------------------------------------------
+
+test('with nothing registered, it says so rather than failing', () => {
+    resetFaceReaderForTests();
+    assert.equal(hasFaceReader(), false);
+});
+
+test('no reader is told apart from a reader that failed', async () => {
+    // The difference decides whether anybody should be paged. Nothing
+    // registered is a configuration fact; a reader that threw is an incident.
+    resetFaceReaderForTests();
+    const none = await readLicenceFace({});
+    assert.equal(none.ok, false);
+    assert.equal(none.reason, 'no-reader');
+
+    registerFaceReader(() => { throw new Error('wasm exploded'); });
+    const broken = await readLicenceFace({});
+    assert.equal(broken.reason, 'reader-failed');
+    assert.ok(broken.error instanceof Error);
+    resetFaceReaderForTests();
+});
+
+test('a registered reader turns an image into fields', async () => {
+    resetFaceReaderForTests();
+    registerFaceReader(async () => ({ text: NEVADA, confidence: 91 }));
+    assert.equal(hasFaceReader(), true);
+    const out = await readLicenceFace({ fake: 'canvas' });
+    assert.equal(out.ok, true);
+    assert.equal(out.fields.last_name, 'Smith');
+    assert.equal(out.fields.date_of_birth, '1985-08-15');
+    assert.equal(out.meta.engineConfidence, 91, 'how legible the photo was, kept apart from how sure the parse is');
+    assert.equal(out.confidence, 100, 'and the parse confidence is its own number');
+    resetFaceReaderForTests();
+});
+
+test('a lazy loader is called once and its failure does not poison later tries', async () => {
+    resetFaceReaderForTests();
+    let calls = 0;
+    registerFaceReader(async () => { calls += 1; throw new Error('download failed'); }, { lazy: true });
+    assert.equal(hasFaceReader(), true, 'registered counts, loaded or not');
+    assert.equal((await readLicenceFace({})).reason, 'no-reader');
+    assert.equal(calls, 1);
+    // The next card gets a fresh attempt rather than inheriting the failure.
+    assert.equal((await readLicenceFace({})).reason, 'no-reader');
+    assert.equal(calls, 2, 'a failed load must not be cached forever');
+
+    resetFaceReaderForTests();
+    let loads = 0;
+    registerFaceReader(async () => { loads += 1; return async () => ({ text: NEVADA }); }, { lazy: true });
+    assert.equal((await readLicenceFace({})).fields.last_name, 'Smith');
+    assert.equal((await readLicenceFace({})).fields.last_name, 'Smith');
+    assert.equal(loads, 1, 'a successful load is paid for once');
+    resetFaceReaderForTests();
+});
+
+test('an empty read is not a card that could not be parsed', async () => {
+    resetFaceReaderForTests();
+    registerFaceReader(async () => ({ text: '   ' }));
+    const out = await readLicenceFace({});
+    assert.equal(out.reason, 'no-text');
+    resetFaceReaderForTests();
+});
+
+test('no image at all is refused before an engine is even loaded', async () => {
+    resetFaceReaderForTests();
+    let loaded = false;
+    registerFaceReader(async () => { loaded = true; return async () => ({ text: NEVADA }); }, { lazy: true });
+    assert.equal((await readLicenceFace(null)).reason, 'no-image');
+    assert.equal(loaded, false, 'megabytes must not be downloaded for a missing image');
+    resetFaceReaderForTests();
+});
+
+// ---------------------------------------------------------------------------
+// AND THE CAPTURE FLOW ACTUALLY USES IT
+// ---------------------------------------------------------------------------
+
+const MODAL = 'src/components/commander/members/IdCaptureModal.jsx';
+const modalSource = () => fs.readFileSync(new URL(`../${MODAL}`, import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+test('a barcode that will not scan falls back to the front, on both failure paths', () => {
+    const src = modalSource();
+    // decodePdf417 failing, AND decoding to something parseAamva refuses.
+    // A card can fail either way and the desk should not care which.
+    assert.equal((src.match(/const read = await readFrontFace\(\);/g) || []).length, 2,
+        'both failure paths must try the front');
+    assert.match(src, /setDecodeState\('face'\)/);
+});
+
+test('the front is kept for exactly as long as it is needed', () => {
+    const src = modalSource();
+    assert.match(src, /frontCropRef\.current = \{/, 'the front must survive the move to the back');
+    // And obeys the rule the file states about itself.
+    const destroy = src.slice(src.indexOf('const destroyImages'), src.indexOf('const startCamera'));
+    assert.match(destroy, /wipe\(frontCropRef\.current\.data\)/, 'no path out may leave a licence in memory');
+    // Retaking the front must drop it, or a stale copy is read against a card
+    // the operator has already replaced.
+    const retake = src.slice(src.indexOf('const retake = useCallback'), src.indexOf('const goToBack'));
+    assert.match(retake, /side === 'front' && frontCropRef\.current/);
+});
+
+test('nothing is offered that is not an identification', () => {
+    const src = modalSource();
+    assert.match(src, /return read && read\.ok \? read : null/,
+        'a read with no identity in it must not be shown as one');
+    assert.match(src, /if \(!front \|\| !hasFaceReader\(\)\) return null/,
+        'and no engine means no fallback, not a broken one');
+});
+
+test('the operator is told the fields came from the printed side', () => {
+    const src = fs.readFileSync(new URL(`../${MODAL}`, import.meta.url), 'utf8');
+    assert.match(src, /Read From The Front Of The Card/);
+    assert.match(src, /Check Them Against The Card Before You Continue/);
+    // The button must not claim barcode certainty for a face read.
+    assert.match(src, /Use These Details After Checking/);
 });

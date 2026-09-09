@@ -264,3 +264,100 @@ export function looksLikeLicenceFace(text) {
 }
 
 export default { parseLicenceFace, looksLikeLicenceFace, faceDate, findState, findIdNumber, toLines };
+
+// ---------------------------------------------------------------------------
+// THE SEAM. THIS PACKAGE STAYS DEPENDENCY FREE.
+// ---------------------------------------------------------------------------
+
+/**
+ * An OCR engine is megabytes. pdf417.mjs already solved this problem: the
+ * decoder is REGISTERED by the consumer, so the shared package carries no
+ * dependency and the download is paid only by an app that needs it, at the
+ * moment it first tries. The same seam, for the same reason.
+ *
+ * @type {null | ((source:*) => Promise<{text:string, confidence?:number}>)}
+ */
+let faceReader = null;
+let faceLoader = null;
+let faceLoading = null;
+
+/**
+ * Register something that turns an image into text.
+ *
+ * @param {Function} fn        read(source) -> {text, confidence?}
+ * @param {object}   [options]
+ * @param {boolean}  [options.lazy] when true, `fn` is a LOADER called once on
+ *                   the first attempt and expected to resolve to the reader.
+ */
+export function registerFaceReader(fn, options = {}) {
+    if (typeof fn !== 'function') { faceReader = null; faceLoader = null; faceLoading = null; return; }
+    if (options.lazy) { faceLoader = fn; faceReader = null; faceLoading = null; return; }
+    faceReader = fn;
+    faceLoader = null;
+    faceLoading = null;
+}
+
+/** Is there anything to read WITH? Registered counts, loaded or not. */
+export function hasFaceReader() {
+    return Boolean(faceReader || faceLoader);
+}
+
+/** Test seam: forget any registration. */
+export function resetFaceReaderForTests() {
+    faceReader = null;
+    faceLoader = null;
+    faceLoading = null;
+}
+
+async function readerOrNull() {
+    if (faceReader) return faceReader;
+    if (!faceLoader) return null;
+    if (!faceLoading) {
+        faceLoading = Promise.resolve()
+            .then(() => faceLoader())
+            .then((loaded) => {
+                faceReader = typeof loaded === 'function' ? loaded : null;
+                return faceReader;
+            })
+            .catch(() => {
+                // A failed load must not poison every later attempt: the next
+                // card gets a fresh try.
+                faceLoading = null;
+                return null;
+            });
+    }
+    return faceLoading;
+}
+
+/**
+ * Read the printed face of a card from an IMAGE.
+ *
+ * This is what the capture flow calls when the barcode would not scan.
+ *
+ * @param {*} source anything the registered reader accepts (a canvas, a blob)
+ * @returns {Promise<{ok:boolean, fields:object, meta:object, confidence:number, reason?:string}>}
+ */
+export async function readLicenceFace(source) {
+    const empty = { ok: false, fields: {}, meta: { source: 'face' }, confidence: 0 };
+    if (!source) return { ...empty, reason: 'no-image' };
+
+    const read = await readerOrNull();
+    // No engine registered is not a failure to read; it is nothing to read
+    // with, and the difference decides whether anybody should be paged.
+    if (!read) return { ...empty, reason: 'no-reader' };
+
+    let text = '';
+    let engineConfidence = null;
+    try {
+        const out = await read(source);
+        text = String((out && out.text) || '');
+        engineConfidence = Number.isFinite(out && out.confidence) ? out.confidence : null;
+    } catch (err) {
+        return { ...empty, reason: 'reader-failed', error: err };
+    }
+
+    if (!text.trim()) return { ...empty, reason: 'no-text' };
+
+    const parsed = parseLicenceFace(text);
+    return { ...parsed, meta: { ...parsed.meta, engineConfidence } };
+}
