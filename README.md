@@ -10,7 +10,7 @@ Shared code package consumed by both Smarter-Poker World Hub
 | `src/components/` | UI components (avatars, navbars, modals, etc.) shared between hub and commander |
 | `src/hooks/` | React hooks (`useDebounce`, realtime, training-bus, wake-lock) |
 | `src/engine/` | Cross-app event bus |
-| `src/lib/` | Server/client utilities (auth, rate limiting, sentry, supabase client, formatters) |
+| `src/lib/` | Server/client utilities (auth, rate limiting, local error diagnostics, supabase client, formatters) |
 
 ## Why this exists (Phase 3.3 of the optimization plan)
 
