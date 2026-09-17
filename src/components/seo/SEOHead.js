@@ -21,6 +21,17 @@ const SITE_URL = 'https://smarter.poker';
 const DEFAULT_OG_IMAGE = 'https://smarter.poker/images/og-default.png';
 const TWITTER_HANDLE = '@SmarterPoker';
 
+/**
+ * One schema.org document for one page. An array of nodes becomes a @graph;
+ * a single node is the document itself. Exported so a test can pin it.
+ */
+export function toJsonLdDocument(jsonLd) {
+    if (Array.isArray(jsonLd)) {
+        return { '@context': 'https://schema.org', '@graph': jsonLd };
+    }
+    return { '@context': 'https://schema.org', ...jsonLd };
+}
+
 export default function SEOHead({
     title,
     description,
@@ -72,16 +83,16 @@ export default function SEOHead({
             {description && <meta name="twitter:description" content={description} />}
             <meta name="twitter:image" content={ogImageUrl} />
 
-            {/* JSON-LD Structured Data */}
+            {/* JSON-LD Structured Data.
+                2026-09-16: an ARRAY of schemas was spread into an object, so
+                the World Hub homepage shipped {"0":{...},"1":{...},"2":{...}}
+                for months - not schema.org, and Google ignored it. An array is
+                now emitted as a @graph, which is the schema.org form for
+                several nodes on one page. A single object is unchanged. */}
             {jsonLd && (
                 <script
                     type="application/ld+json"
-                    dangerouslySetInnerHTML={{
-                        __html: JSON.stringify({
-                            '@context': 'https://schema.org',
-                            ...jsonLd,
-                        }),
-                    }}
+                    dangerouslySetInnerHTML={{ __html: JSON.stringify(toJsonLdDocument(jsonLd)) }}
                 />
             )}
 
