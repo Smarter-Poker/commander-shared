@@ -28,7 +28,12 @@ jobs:
     # Renaming the job silently un-gates the branch: GitHub waits forever for
     # a context that no longer reports. Change both together or neither.
     name: Package Integrity
-    runs-on: [self-hosted, smarter-local-linux-arm64]
+    # RESTORED PROVIDER ROUTE (2026-09-17). The self-hosted
+    # smarter-local-linux-arm64 fleet is retired with the local pipeline; the
+    # Club Arena and World Hub gates moved to GitHub-hosted runners on
+    # 2026-09-16/17 and this one follows, or Package Integrity, the one
+    # required check on main, can never run and nothing can merge here.
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
 
     steps:
