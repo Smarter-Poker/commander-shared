@@ -1,5 +1,7 @@
 # Shared package delivery
 
+**Non-engine delivery: push, publish, verify and finish without waiting for `:55`.** Apply the maintenance cutover only to an actual engine replacement or a specifically identified dependency on new engine behavior. A Club Arena client using existing engine APIs, an unrelated pending engine release, and a generic engine-health check do not create that dependency. Required checks and normal client publication/live proof still apply.
+
 Read `AGENTS.md`, `AGENT-PLAYBOOK.md` and `docs/agent-policy/OPERATING-LAW.md`. Use an owned worktree and branch, ordinary hooks, explicit staged paths, the existing PR or a new one when absent, current required checks and protected squash merge. The authorized agent owns completion; disabled autopilot is not a merge dependency.
 
 The existing `ci.yml` runs Package Integrity and `npm test` on GitHub-hosted compute. These checks must actually pass for the candidate. Verify the protected merged tree. This repository is a source package, not a running application with its own production health endpoint.
