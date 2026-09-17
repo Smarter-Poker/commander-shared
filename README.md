@@ -20,59 +20,10 @@ the migration fast. Both repos started carrying their own duplicate
 copy of the same code. Without a single source of truth, any future
 fix in one repo would silently fail to apply to the other.
 
-This package is that single source of truth. Both consumer repos
-install it as a versioned dep:
+This is the maintained upstream source. The current World Hub and Commander consumers install their reviewed `vendor/commander-shared` copies through `file:vendor/commander-shared`. An upstream merge or registry version does not automatically update either consumer.
 
-```bash
-npm install @smarter-poker/commander-shared
-```
+## Publishing and consuming
 
-A bug fix here, bumped to a new version (`0.1.1` etc.), gets picked
-up by both consumers on their next deploy.
+Read [AGENTS.md](AGENTS.md) and [PUBLISHING.md](PUBLISHING.md). Use an owned branch, current required integrity/tests and protected merge. For an assigned shared-code delivery, land upstream, sync the appropriate reviewed consumer files and lockfile, and pass each consumer's existing drift and functional gates before its provider release. Keep intentional overrides explicit under the existing ratchet.
 
-## Publishing
-
-The package is hosted on GitHub Packages (the npm registry tied to
-GitHub). To publish a new version:
-
-```bash
-# Edit package.json's "version" field
-npm publish
-```
-
-`publishConfig.registry` is preset to `https://npm.pkg.github.com`,
-so `npm publish` targets GitHub Packages without explicit `--registry`.
-
-Authentication: requires a token with `write:packages` scope. The
-publishing token is documented in the team's secret manager.
-
-## Consuming
-
-Both consumers need:
-
-1. `~/.npmrc` configured with a `read:packages`-scoped token to
-   pull from the private registry:
-   ```
-   //npm.pkg.github.com/:_authToken=ghp_...
-   @smarter-poker:registry=https://npm.pkg.github.com
-   ```
-2. Dependency in `package.json`:
-   ```json
-   "@smarter-poker/commander-shared": "^0.1.0"
-   ```
-3. Imports rewritten from relative paths to package paths:
-   ```js
-   // before:
-   import { EventBus } from '../../src/engine/EventBus';
-   // after:
-   import { EventBus } from '@smarter-poker/commander-shared/engine/EventBus';
-   ```
-
-## Versioning
-
-Semver. `0.x` while we're stabilizing the API. Breaking changes
-allowed in minor bumps until `1.0.0`.
-
-## License
-
-UNLICENSED — internal Smarter-Poker code.
+`publishConfig` still names GitHub Packages. That configuration is not the active automatic consumer-update route or authorization to publish a package. Only use a registry release when the task explicitly requires it and the consumer contract has been verified. Use configured authenticated tools; never paste token examples, credential values or `.env` contents into instructions.
