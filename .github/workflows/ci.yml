@@ -43,6 +43,11 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Agent policy integrity and delivery scenarios
+        run: |
+          node docs/agent-policy/agent-policy.mjs check
+          node --test docs/agent-policy/agent-policy.test.mjs
+
       # No `npm ci`: this package has no lockfile and no devDependencies, and
       # the gate is deliberately dependency-free so a registry outage cannot
       # turn it red for a reason that has nothing to do with the change.
