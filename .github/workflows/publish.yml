@@ -19,7 +19,8 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, smarter-local-linux-arm64]
+    timeout-minutes: 5
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
