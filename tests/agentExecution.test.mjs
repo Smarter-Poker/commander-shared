@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { inputFingerprint, reusableEvidence, readProviderEvidence, operationTransition, updateOperation,
-  failureDisposition, summarizeMetrics } from '../src/lib/agentExecution.mjs';
+  failureDisposition, summarizeMetrics, executionInventory, previewExecution } from '../src/lib/agentExecution.mjs';
 const temporary = fn => { const p = mkdtempSync(join(tmpdir(), 'execution-')); try { fn(p); } finally { rmSync(p, { recursive: true }); } };
 const spec = { inputs: ['fixture'], command: ['node', 'test.mjs'], runtime: 'node22', environment: 'isolated-pg17', schema: 'v1' };
 test('reuse fingerprint binds nested dependencies, fixture additions, permissions and configuration', () => temporary(root => {
@@ -68,4 +68,37 @@ test('hosted evidence is read from authenticated run and exact job, never suppli
   assert.throws(() => readProviderEvidence({ ...expected, check: 'unrelated' }, receipt, read));
   assert.throws(() => readProviderEvidence(expected, { ...receipt, attempt: 3 }, read));
   assert.throws(() => readProviderEvidence(expected, receipt, () => { throw Error('403'); }));
+});
+
+const inventoryEntry = (id, inputs, risks, more = {}) => ({ id, inputs, risks,
+  command: ['node', `${id}.mjs`], owner: '.github/workflows/ci.yml',
+  invariant: id, runtime: 'node22', environment: 'isolated', always: false,
+  durationSeconds: null, replaces: null, ...more });
+test('explicit dependency preview does not turn unrelated SQL or documentation into a financial audit', () => {
+  const inventory = executionInventory([
+    inventoryEntry('policy', ['docs/'], ['documentation']),
+    inventoryEntry('catalog', ['supabase/components/read-only-catalog.sql'], ['database']),
+    inventoryEntry('accounting', ['supabase/components/payout.sql', 'server/src/money/'], ['financial']),
+  ]);
+  const sql = previewExecution(inventory, { paths: ['supabase/components/read-only-catalog.sql'], complete: true });
+  assert.deepEqual(sql.checks.filter(c => c.selected).map(c => c.id), ['catalog']);
+  assert.deepEqual(sql.risks, ['database']);
+  assert.equal(sql.estimatedSeconds, null);
+  for (const path of ['docs/change.md', 'supabase/components/payout.sql', 'server/src/money/fee.ts']) {
+    const result = previewExecution(inventory, { paths: [path], complete: true });
+    assert.equal(result.checks.find(c => c.id === 'accounting').selected, !path.startsWith('docs/'));
+  }
+  for (const input of [{paths:['unmapped.sql'],complete:true},{paths:[],complete:false}])
+    assert.equal(previewExecution(inventory,input).checks.every(c=>c.selected),true);
+  assert.equal(previewExecution(inventory,{paths:['docs/change.md'],complete:true,required:['accounting']}).checks.find(c=>c.id==='accounting').selected,true);
+});
+test('inventory rejects ambiguous ownership and unsafe closure and never retires overlap automatically', () => {
+  const entry=inventoryEntry('one',['scripts/'],['tooling']);
+  for (const changed of [{owner:''},{inputs:['../outside']},{inputs:['scripts/../../outside']},{risks:[]},{always:undefined},{durationSeconds:-1}])
+    assert.throws(()=>executionInventory([{...entry,...changed}]));
+  assert.throws(()=>executionInventory([entry,entry]));
+  const inventory=executionInventory([entry,inventoryEntry('two',['scripts/'],['tooling'],{invariant:'one'})]);
+  assert.equal(inventory.overlap.length,1);
+  assert.equal(previewExecution(inventory,{paths:['scripts/check.mjs'],complete:true}).checks.filter(c=>c.selected).length,2);
+  assert.throws(()=>previewExecution(inventory,{paths:[],complete:true,required:['missing']}));
 });
