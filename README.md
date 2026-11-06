@@ -27,3 +27,7 @@ This is the maintained upstream source. The current World Hub and Commander cons
 Read [AGENTS.md](AGENTS.md) and [PUBLISHING.md](PUBLISHING.md). Use an owned branch, current required integrity/tests and protected merge. For an assigned shared-code delivery, land upstream, sync the appropriate reviewed consumer files and lockfile, and pass each consumer's existing drift and functional gates before its provider release. Keep intentional overrides explicit under the existing ratchet.
 
 `publishConfig` still names GitHub Packages. That configuration is not the active automatic consumer-update route or authorization to publish a package. Only use a registry release when the task explicitly requires it and the consumer contract has been verified. Use configured authenticated tools; never paste token examples, credential values or `.env` contents into instructions.
+
+## Agent execution tooling
+
+`src/lib/agentExecution.mjs` is the shared, Node-only owner for explicit input fingerprints, evidence checks, operation transitions, failure disposition and cost metrics. Import this subpath only from agent/CI tooling, never browser code. Existing approved publishers remain the sole release executors. Consumer-specific check selection belongs in each repository adapter; the shared module does not invent a universal accounting gate. Unknown provider acknowledgements require durable readback before retry.
